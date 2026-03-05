@@ -1132,6 +1132,7 @@ const Chat: React.FC<ChatProps> = ({
         }
 
         try {
+          const startTime = Date.now();
           const result = await currentStore.executeQuery(
             workspaceId,
             connectionId,
@@ -1141,11 +1142,27 @@ const Chat: React.FC<ChatProps> = ({
               databaseId: targetConsole.databaseId,
             },
           );
+          const executionTime = Date.now() - startTime;
 
           if (result.success) {
             const data = (result.data as any[]) || [];
             const rowCount = Array.isArray(data) ? data.length : 1;
             const preview = Array.isArray(data) ? data.slice(0, 50) : data;
+
+            window.dispatchEvent(
+              new CustomEvent("console-execution-result", {
+                detail: {
+                  consoleId,
+                  result: {
+                    results: data,
+                    executedAt: new Date().toISOString(),
+                    resultCount: rowCount,
+                    executionTime,
+                  },
+                },
+              }),
+            );
+
             addToolOutput({
               tool: "run_console",
               toolCallId: toolCall.toolCallId,
@@ -1157,6 +1174,12 @@ const Chat: React.FC<ChatProps> = ({
               },
             });
           } else {
+            window.dispatchEvent(
+              new CustomEvent("console-execution-result", {
+                detail: { consoleId, result: null },
+              }),
+            );
+
             addToolOutput({
               tool: "run_console",
               toolCallId: toolCall.toolCallId,
@@ -1167,6 +1190,12 @@ const Chat: React.FC<ChatProps> = ({
             });
           }
         } catch (e: any) {
+          window.dispatchEvent(
+            new CustomEvent("console-execution-result", {
+              detail: { consoleId, result: null },
+            }),
+          );
+
           addToolOutput({
             tool: "run_console",
             toolCallId: toolCall.toolCallId,

@@ -270,6 +270,28 @@ function Editor({ dbFlowFormRef }: EditorProps = {}) {
     };
   }, [activeConsoleId, consoleTabs]);
 
+  // Listen for console execution result events from AI (run_console tool)
+  useEffect(() => {
+    const handleExecutionResult = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        consoleId: string;
+        result: QueryResult | null;
+      }>;
+      const { consoleId, result } = customEvent.detail;
+      if (consoleId) {
+        setTabResults(prev => ({ ...prev, [consoleId]: result }));
+      }
+    };
+
+    window.addEventListener("console-execution-result", handleExecutionResult);
+    return () => {
+      window.removeEventListener(
+        "console-execution-result",
+        handleExecutionResult,
+      );
+    };
+  }, []);
+
   /* ------------------------ Console Actions ------------------------ */
   const handleTabChange = (_: React.SyntheticEvent, newValue: string) => {
     setActiveTab(newValue);
