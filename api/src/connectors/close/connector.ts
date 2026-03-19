@@ -1367,6 +1367,11 @@ export class CloseConnector extends BaseConnector {
         .update(data, "utf-8")
         .digest("hex");
 
+      // Check length before timingSafeEqual to avoid RangeError on malformed signatures
+      if (sigHash.length !== expectedSignature.length) {
+        return { valid: false, error: "Invalid signature" };
+      }
+
       if (
         !crypto.timingSafeEqual(
           Buffer.from(sigHash),
