@@ -259,6 +259,7 @@ function formatBigQueryValue(
 export class BigQueryDatabaseDriver implements DatabaseDriver {
   private logger = loggers.db("bigquery");
   private tableColumnTypeCache = new Map<string, Map<string, string>>();
+  private readonly MAX_CACHE_ENTRIES = 1000;
 
   private getTableCacheKey(
     database: IDatabaseConnection,
@@ -267,6 +268,16 @@ export class BigQueryDatabaseDriver implements DatabaseDriver {
   ): string {
     const projectId = this.getProjectId(database);
     return `${projectId}.${dataset}.${tableName}`;
+  }
+
+  private evictOldestCacheEntries(): void {
+    if (this.tableColumnTypeCache.size >= this.MAX_CACHE_ENTRIES) {
+      const entriesToRemove = this.tableColumnTypeCache.size - this.MAX_CACHE_ENTRIES + 1;
+      const keys = Array.from(this.tableColumnTypeCache.keys());
+      for (let i = 0; i < entriesToRemove; i++) {
+        this.tableColumnTypeCache.delete(keys[i]);
+      }
+    }
   }
 
   private async getCachedTableColumnTypes(
@@ -289,6 +300,7 @@ export class BigQueryDatabaseDriver implements DatabaseDriver {
       dataset,
     );
     if (fetched.size > 0) {
+      this.evictOldestCacheEntries();
       this.tableColumnTypeCache.set(cacheKey, fetched);
       return fetched;
     }
@@ -391,7 +403,7 @@ export class BigQueryDatabaseDriver implements DatabaseDriver {
       return { success: true, created: false };
     }
 
-    const createQuery = `CREATE SCHEMA IF NOT EXISTS ${escapeIdentifier(projectId)}.${escapeIdentifier(schemaName)} OPTIONS(location='${location}')`;
+    const createQuery = `CREATE SCHEMA IF NOT EXISTS ${escapeIdentifier(projectId)}.${escapeIdentifier(schemaName)} OPTIONS(location='${location.replace(/'/g, "''")}')`;
     const createResult = await this.executeQuery(database, createQuery);
     if (!createResult.success) {
       return { success: false, error: createResult.error };
@@ -703,6 +715,7 @@ export class BigQueryDatabaseDriver implements DatabaseDriver {
 
     if (cacheChanged) {
       const cacheKey = this.getTableCacheKey(database, dataset, tableName);
+      this.evictOldestCacheEntries();
       this.tableColumnTypeCache.set(cacheKey, existingColumns);
     }
   }

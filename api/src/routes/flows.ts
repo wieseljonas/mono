@@ -967,6 +967,11 @@ flowRoutes.post("/:flowId/backfill", async c => {
   try {
     const workspaceId = c.req.param("workspaceId") as string;
     const flowId = c.req.param("flowId") as string;
+    const authorizationError = await assertOwnerOrAdmin(
+      c as AuthenticatedContext,
+      workspaceId,
+    );
+    if (authorizationError) return authorizationError;
 
     const flow = await Flow.findOne({
       _id: new Types.ObjectId(flowId),

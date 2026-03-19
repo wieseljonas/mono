@@ -1398,7 +1398,9 @@ export class CloseConnector extends BaseConnector {
       "lead.merged": { entity: "leads", operation: "upsert" },
 
       // Contacts
+      "contact.created": { entity: "contacts", operation: "upsert" },
       "contact.updated": { entity: "contacts", operation: "upsert" },
+      "contact.deleted": { entity: "contacts", operation: "delete" },
 
       // Opportunities
       "opportunity.created": { entity: "opportunities", operation: "upsert" },
