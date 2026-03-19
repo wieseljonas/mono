@@ -5,11 +5,7 @@ import {
   materializeBigQueryEntity,
   recordMaterializationFailure,
 } from "../services/bigquery-cdc.service";
-import {
-  buildLeaseOwnerId,
-  cdcLockService,
-  CdcLease,
-} from "./lock.service";
+import { buildLeaseOwnerId, cdcLockService, CdcLease } from "./lock.service";
 import { syncMachineService } from "./state/sync-machine.service";
 
 const log = loggers.sync("cdc.materializer");
@@ -126,8 +122,7 @@ export class CdcMaterializerService {
     await recordMaterializationFailure({
       flowId: params.flowId,
       entity: params.entity,
-      message,
-      code: "MATERIALIZATION_FAILED",
+      error: message,
     });
 
     await syncMachineService.applyTransition({

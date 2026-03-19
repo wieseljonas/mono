@@ -198,9 +198,11 @@ export async function appendBigQueryChangeEvents(params: {
   const now = new Date();
 
   const docs: Omit<IBigQueryChangeEvent, "_id">[] = [];
+  const entityToMaxSeq = new Map<string, number>();
   for (const change of params.changes) {
     const payload = normalizePayload(change.payload);
     const sourceTs = resolveSourceTs(payload, change.sourceTs);
+    const ingestSeq = nextSeq++;
     docs.push({
       workspaceId: params.workspaceId,
       flowId: params.flowId,
@@ -211,7 +213,7 @@ export async function appendBigQueryChangeEvents(params: {
       op: change.op,
       sourceTs,
       ingestTs: now,
-      ingestSeq: nextSeq++,
+      ingestSeq,
       idempotencyKey: buildIdempotencyKey({
         ...change,
         payload,
@@ -224,6 +226,10 @@ export async function appendBigQueryChangeEvents(params: {
       materializationStatus: "pending",
       materializationAttemptCount: 0,
     } as Omit<IBigQueryChangeEvent, "_id">);
+    entityToMaxSeq.set(
+      change.entity,
+      Math.max(entityToMaxSeq.get(change.entity) ?? -1, ingestSeq),
+    );
   }
 
   let inserted = 0;
@@ -243,7 +249,7 @@ export async function appendBigQueryChangeEvents(params: {
   }
 
   for (const [entity, changes] of byEntity.entries()) {
-    const lastIngestSeq = seqStart + changes.length - 1;
+    const lastIngestSeq = entityToMaxSeq.get(entity)!;
     const sourceKind = changes.some(c => c.sourceKind === "backfill")
       ? "backfill"
       : "webhook";

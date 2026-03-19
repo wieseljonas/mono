@@ -26,7 +26,7 @@ export const webhookEventProcessFunction = inngest.createFunction(
     id: "webhook-event-process",
     name: "Process Webhook Event",
     concurrency: {
-      limit: 5, // Keep low to avoid BigQuery DML concurrency limits
+      limit: 15, // Balanced for BigQuery DML limits (needs ~5) vs legacy MongoDB flows (can handle 25+)
     },
   },
   { event: "webhook/event.process" },
@@ -789,14 +789,17 @@ export const bigQueryCdcMaterializeFunction = inngest.createFunction(
       100,
     );
 
-    const result = await step.run("materialize-bigquery-cdc-entity", async () => {
-      return cdcMaterializerService.materializeEntity({
-        workspaceId,
-        flowId,
-        entity,
-        maxEvents,
-      });
-    });
+    const result = await step.run(
+      "materialize-bigquery-cdc-entity",
+      async () => {
+        return cdcMaterializerService.materializeEntity({
+          workspaceId,
+          flowId,
+          entity,
+          maxEvents,
+        });
+      },
+    );
 
     logger.info("BigQuery CDC materialization completed", {
       flowId,
