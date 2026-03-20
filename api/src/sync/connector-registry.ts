@@ -75,8 +75,12 @@ class SyncConnectorRegistry {
     try {
       const connectorsDir = path.join(__dirname, "../connectors");
       const entries = fs.readdirSync(connectorsDir, { withFileTypes: true });
+      const excludedDirectories = new Set(["base", "template"]);
       const connectorDirs = entries
-        .filter(entry => entry.isDirectory() && entry.name !== "base")
+        .filter(
+          entry =>
+            entry.isDirectory() && !excludedDirectories.has(entry.name),
+        )
         .map(entry => entry.name);
 
       for (const dirName of connectorDirs) {

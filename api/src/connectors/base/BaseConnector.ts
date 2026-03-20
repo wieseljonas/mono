@@ -93,6 +93,18 @@ export interface EntityMetadata {
   fieldHints?: string[];
 }
 
+/**
+ * Base runtime contract for all connectors.
+ *
+ * Repo conventions that are intentionally documented here:
+ * - Connectors are auto-discovered from `api/src/connectors/<type>/index.ts`.
+ * - The module is expected to export a class whose name ends with `Connector`.
+ * - UI/registry flows call `static getConfigSchema()` when present, even though
+ *   TypeScript cannot enforce static abstract members on this base class.
+ * - CDC support is compositional: set `getMetadata().supportsCdc = true` and
+ *   implement webhook + mapping + extraction methods, plus resumable fetching
+ *   for backfill/resume behavior where the source API requires it.
+ */
 export abstract class BaseConnector {
   protected dataSource: IConnector;
 
@@ -224,6 +236,7 @@ export abstract class BaseConnector {
 
   /**
    * Verify webhook signature and parse event
+   * `payload` is provided by the webhook route as raw UTF-8 body text.
    */
   async verifyWebhook(
     _options: WebhookHandlerOptions,

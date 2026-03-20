@@ -27,21 +27,21 @@ Connectors pull data from external services (Stripe, Close CRM, PostHog, REST AP
 
 ## Building Custom Connectors
 
-See the [Building Connectors](/guides/building-connectors/) guide for implementing new data sources.
+See [Building Connectors](/guides/building-connectors/) for the quick path, then use the in-repo source of truth:
 
-Each connector implements:
+- `api/src/connectors/README.md`
+- `api/src/connectors/base/BaseConnector.ts`
 
-```typescript
-interface Connector {
-  fetchEntityChunk(entity: string, cursor?: string): Promise<{
-    records: Record<string, any>[];
-    nextCursor?: string;
-    hasMore: boolean;
-  }>;
-  getEntities(): string[];
-  getSchema(entity: string): SchemaDefinition;
-}
-```
+The runtime contract is class-based (`BaseConnector`), not the old conceptual interface snippet.
+Connectors are auto-discovered by folder/export convention (no manual static registry edits).
+
+For CDC/webhook-capable connectors, the runtime also requires webhook verification, event mapping, and stable payload extraction methods in addition to `supportsCdc` metadata.
+
+Canonical copy template:
+
+- `api/src/connectors/template/connector.ts`
+- `api/src/connectors/template/index.ts`
+- `api/src/connectors/template/icon.svg`
 
 ## Configuration
 

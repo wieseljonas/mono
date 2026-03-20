@@ -46,8 +46,12 @@ class ConnectorRegistry {
     try {
       // Get all subdirectories (potential connector folders)
       const entries = fs.readdirSync(connectorsDir, { withFileTypes: true });
+      const excludedDirectories = new Set(["base", "template"]);
       const connectorDirs = entries
-        .filter(entry => entry.isDirectory() && entry.name !== "base")
+        .filter(
+          entry =>
+            entry.isDirectory() && !excludedDirectories.has(entry.name),
+        )
         .map(entry => entry.name);
 
       logger.info("Discovering connectors", { directory: connectorsDir });

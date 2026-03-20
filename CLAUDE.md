@@ -393,9 +393,9 @@ Data sources are now managed through the web interface (stored in MongoDB with e
 
 1. Create connector in `/api/src/connectors/<name>/`
 2. Extend `BaseConnector` class from `/api/src/connectors/base/`
-3. Implement required methods: `sync()`, `validate()`, etc.
-4. Register in `/api/src/connectors/registry.ts`
-5. Add connector configuration UI in frontend
+3. Implement required methods: `testConnection()`, `getAvailableEntities()`, `fetchEntity()`, `getMetadata()`
+4. Implement `static getConfigSchema()` (expected by UI/registry flows)
+5. Add `index.ts` export + `icon.svg` so auto-discovery can load the connector
 6. Support both full and incremental sync modes
 7. Implement webhook handlers if applicable
 
@@ -542,8 +542,9 @@ enrichContextWithWorkspace(workspaceId);
 mkdir -p api/src/connectors/my-source
 
 # Create connector class extending BaseConnector
-# Implement: sync(), validate(), getSchema()
-# Register in api/src/connectors/registry.ts
+# Implement: testConnection(), getAvailableEntities(), fetchEntity(), getMetadata()
+# Add static getConfigSchema(), index.ts export, and icon.svg
+# Connector will be auto-discovered by folder/export convention
 
 # Add configuration UI in app/src/components/ConnectorForm.tsx
 # Test with sample data
@@ -551,7 +552,7 @@ mkdir -p api/src/connectors/my-source
 
 **Key files to modify:**
 - `/api/src/connectors/my-source/index.ts` - Connector implementation
-- `/api/src/connectors/registry.ts` - Register connector
+- `/api/src/connectors/my-source/connector.ts` - Connector contract implementation
 - `/app/src/components/ConnectorForm.tsx` - Add UI for configuration
 
 ### 2. Adding a New Database Driver

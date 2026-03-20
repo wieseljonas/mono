@@ -1,142 +1,169 @@
-# Data Source Connectors
+# Connector Authoring Guide (Source of Truth)
 
-This directory contains the connector architecture for integrating various data sources into the platform.
+This is the canonical, repo-native guide for creating connectors in this codebase.
+If this file and other docs conflict, follow the runtime contract in:
 
-## Architecture Overview
+- `api/src/connectors/base/BaseConnector.ts`
+- `api/src/connectors/registry.ts`
+- `api/src/sync/connector-registry.ts`
+- `api/src/routes/webhooks.ts`
+- `api/src/inngest/functions/webhook-flow.ts`
 
-The connector system is designed to be extensible, allowing easy addition of new data source types. Each connector implements a common interface defined in `BaseConnector`.
+## 1) Real Connector Contract
 
-### Directory Structure
+At minimum, every connector class must extend `BaseConnector` and implement:
 
-```
-connectors/
-├── base/
-│   └── BaseConnector.ts     # Abstract base class for all connectors
-├── stripe/
-│   ├── connector.ts         # Stripe connector implementation
-│   ├── index.ts             # Module exports
-│   └── icon.svg             # Stripe connector icon
-├── close/
-│   ├── connector.ts         # Close CRM connector implementation
-│   ├── index.ts             # Module exports
-│   └── icon.svg             # Close connector icon
-├── graphql/
-│   ├── connector.ts         # Generic GraphQL API connector implementation
-│   ├── index.ts             # Module exports
-│   └── icon.svg             # GraphQL connector icon
-├── registry.ts              # Runtime connector discovery for the API server
-└── README.md               # This file
-```
+- `testConnection(): Promise<ConnectionTestResult>`
+- `getAvailableEntities(): string[]`
+- `fetchEntity(options: FetchOptions): Promise<void>`
+- `getMetadata(): { name, version, description, author?, supportedEntities, supportsCdc? }`
 
-## Creating a New Connector
+Common optional methods used heavily in production:
 
-To add support for a new data source type:
+- `validateConfig()`
+- `getEntityMetadata()`
+- `supportsResumableFetching()` + `fetchEntityChunk()`
+- `supportsWebhooks()`
+- `verifyWebhook()`
+- `getWebhookEventMapping()`
+- `getSupportedWebhookEvents()`
+- `extractWebhookData()`
 
-1. Create a new directory for your connector (e.g., `salesforce/`)
-2. Create a connector class that extends `BaseConnector`
-3. Add an `index.ts` file to export your connector
-4. Include an `icon.svg` file for the web interface
-5. The connector will be discovered by the runtime registry used by the API or lazily loaded by the sync registry.
+Repo-specific convention not expressed in `BaseConnector` type:
 
-### Example Connector Implementation
+- `static getConfigSchema()` is expected by UI/registry code and should be present on real connectors.
 
-```typescript
-import {
-  BaseConnector,
-  ConnectionTestResult,
-  FetchOptions,
-} from "../base/BaseConnector";
+## 2) Discovery and Naming Rules (No Manual Registry Edits)
 
-export class MyConnector extends BaseConnector {
-  getMetadata() {
-    return {
-      name: "My Data Source",
-      version: "1.0.0",
-      description: "Connector for My Data Source",
-      supportedEntities: ["entity1", "entity2"],
-    };
-  }
+Connectors are auto-discovered by folder + export convention.
+Do not manually edit a static connector map.
 
-  async testConnection(): Promise<ConnectionTestResult> {
-    // Implement connection test logic
-    return {
-      success: true,
-      message: "Connection successful",
-    };
-  }
+Required structure for a connector type `my-service`:
 
-  getAvailableEntities(): string[] {
-    return ["entity1", "entity2"];
-  }
-
-  async fetchEntity(options: FetchOptions): Promise<void> {
-    const { entity, onBatch, onProgress, since } = options;
-
-    // Implement data fetching logic
-    // Call onBatch with each batch of records
-    // Call onProgress to update progress
-  }
-}
+```text
+api/src/connectors/my-service/
+  connector.ts
+  index.ts
+  icon.svg
 ```
 
-### Connector Discovery
+Rules used by runtime registries:
 
-There are two registries:
+- API runtime registry (`api/src/connectors/registry.ts`) scans connector subfolders and imports `./<folder>/index`.
+- Sync registry (`api/src/sync/connector-registry.ts`) lazily imports `../connectors/<folder>`.
+- Each connector module must export a class whose export name ends with `Connector`.
+- Connector `type` is the folder name.
 
-- API runtime registry: scans subdirectories and dynamically imports connectors at runtime (`connectors/registry.ts`).
-- Sync CLI registry: lazily imports connectors when needed (`sync/connector-registry.ts`).
+## 3) Track A: Basic Connector (Full/Incremental Sync)
 
-Naming conventions are simplified; each connector exports a class named `XxxConnector` from its `index.ts`.
+Implement this when you only need pull-based sync (no webhook CDC):
 
-## Configuration
+1. `static getConfigSchema()` for UI form generation.
+2. `validateConfig()` to guard required credentials/config.
+3. `testConnection()` with a cheap auth/health request.
+4. `getAvailableEntities()` (and optionally `getEntityMetadata()`).
+5. `fetchEntity()` for complete fetch behavior.
+6. Prefer resumable sync: `supportsResumableFetching() === true` + `fetchEntityChunk()`.
 
-Data sources are stored in the database with encrypted credentials. Each data source has:
+Notes:
 
-- **config**: Connection configuration (API keys, endpoints, etc.)
-- **settings**: Sync settings (batch size, rate limits, etc.)
-- **targetDatabases**: Target databases for syncing data
+- Use `onBatch` to emit records.
+- Use `onProgress` if counts are available.
+- Honor `since` for incremental sync.
+- Respect rate limits (`this.getRateLimitDelay()` / `this.sleep()`).
 
-## Security
+## 4) Track B: CDC-Capable Connector (Webhook + Mapping + Extraction)
 
-All sensitive configuration data (API keys, passwords, etc.) is encrypted before storage using AES-256-CBC encryption. The encryption key must be set in the `ENCRYPTION_KEY` environment variable.
+CDC support is not one method. It is the combination of:
 
-## Available Connectors
+- `getMetadata().supportsCdc = true`
+- webhook support methods
+- robust event type mapping
+- stable payload extraction
+- resumable fetching for backfill/resume where source API requires it
 
-### Stripe
+Minimum CDC method set:
 
-- Syncs payment data from Stripe
-- Supported entities: customers, subscriptions, charges, invoices, products, plans
-- Required config: `api_key`
+- `supportsWebhooks()`
+- `verifyWebhook()`
+- `getWebhookEventMapping()`
+- `getSupportedWebhookEvents()`
+- `extractWebhookData()`
 
-### Close
+## 5) End-to-End Webhook CDC Runtime Path
 
-- Syncs CRM data from Close
-- Supported entities: leads, opportunities, activities, contacts, users, custom_fields
-- Required config: `api_key`
+### Step 1: Verification input and event persistence (`api/src/routes/webhooks.ts`)
 
-### GraphQL
+- `verifyWebhook()` receives:
+  - `payload`: raw UTF-8 request body text
+  - `headers`: incoming webhook headers
+  - `secret`: flow webhook secret
+- The route stores a normalized `eventType` using:
+  - `event.type`
+  - `event.event_type`
+  - `event.action`
+  - `event.event.object_type + "." + event.event.action`
 
-- Generic GraphQL API connector
-- Supports custom queries with offset or cursor pagination
-- Required config: `endpoint`, `queries`
+### Step 2: Event mapping + extraction (`api/src/inngest/functions/webhook-flow.ts`)
 
-## Future Connectors
+- Runtime calls `connector.getWebhookEventMapping(eventType)`.
+- Runtime calls `connector.extractWebhookData(webhookEvent.rawPayload)`.
+- `extractWebhookData()` must return stable shape:
 
-The architecture supports easy addition of new connectors such as:
+```ts
+{ id: string; data: Record<string, unknown> }
+```
 
-- Salesforce
-- HubSpot
-- PostgreSQL/MySQL (direct database connections)
-- REST APIs
-- Webhooks
-- CSV imports
+- For activity-like sources, runtime may resolve sub-entities (example: `activities:${data._type}`), so mappings and extracted payload should be consistent with entity naming.
 
-## Contributing
+### Step 3: Destination write behavior (delete semantics differ by destination)
 
-When contributing a new connector:
+- **MongoDB path**: `delete` mapping performs hard delete (`deleteOne`).
+- **SQL/warehouse path**:
+  - upsert: write with key columns
+  - delete: behavior depends on `flow.deleteMode`
+    - `hard`: physical delete by keys
+    - `soft`: upsert record with `is_deleted/deleted_at`
+- **BigQuery CDC path**:
+  - webhook event is appended as a change event (`pending`)
+  - materialization applies operation later
+  - delete semantics are resolved by CDC materialization logic, not immediate table DML in webhook handler
 
-1. Follow the existing patterns and interfaces
-2. Include comprehensive error handling
-3. Implement rate limiting and retry logic where appropriate
-4. Add tests for your connector
-5. Update this README with connector details
+## 6) Canonical Copy Template
+
+Use this scaffold as the starting point for new CDC connectors:
+
+- `api/src/connectors/template/connector.ts`
+- `api/src/connectors/template/index.ts`
+- `api/src/connectors/template/icon.svg`
+
+The `template` folder is intentionally excluded from runtime discovery.
+Copy it to a new folder name (for example `my-service`) and rename the class.
+
+Follow `stripe/connector.ts` and `close/connector.ts` for production-grade patterns.
+
+## 7) Query-Based Connector Clarifications
+
+- GraphQL and PostHog query definitions are flow/transfer-level configuration, then injected at sync runtime.
+- Connector config still holds credentials/base connection settings.
+- REST is already implemented in this repo (`api/src/connectors/rest`), not a future placeholder.
+
+## 8) One-Shot Authoring Checklist (Human + LLM)
+
+- [ ] folder name matches connector type
+- [ ] exported class name ends with `Connector`
+- [ ] `index.ts` re-exports the connector class
+- [ ] `static getConfigSchema()` implemented
+- [ ] `getMetadata()` implemented, with `supportsCdc` set correctly
+- [ ] `validateConfig()` implemented
+- [ ] `testConnection()` implemented
+- [ ] `getAvailableEntities()` implemented (and `getEntityMetadata()` if hierarchical)
+- [ ] `fetchEntity()` implemented
+- [ ] resumable sync implemented (`supportsResumableFetching` + `fetchEntityChunk`) when needed
+- [ ] `supportsWebhooks()` implemented for CDC connectors
+- [ ] `verifyWebhook()` validates signature using raw UTF-8 body input
+- [ ] `getWebhookEventMapping()` covers all emitted source event types
+- [ ] `getSupportedWebhookEvents()` aligns with mapping
+- [ ] `extractWebhookData()` always returns stable `{ id, data }`
+- [ ] mapped entity names align with flow/destination table naming
+- [ ] tested with one full-sync run and one real webhook payload

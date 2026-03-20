@@ -3,103 +3,84 @@ title: Building Connectors
 description: Learn how to create a new data connector.
 ---
 
-Connectors allow Mako to ingest data from external sources. This guide walks you through creating a new connector.
+This guide is a quick start. The canonical source of truth is:
 
-## Key Principle: Separation of Concerns
+- `api/src/connectors/README.md`
+- `api/src/connectors/base/BaseConnector.ts`
 
-- **Connectors** store only credentials and connection settings (endpoint, API keys, auth headers).
-- **Flows** define what data to sync:
-  - For connectors with fixed entities (Stripe, Close): use `entityFilter`
-  - For query-based connectors (GraphQL, PostHog): use `queries` array on the flow
+## Connector Structure
 
-This separation allows reusing the same connector credentials for multiple transfers with different data configurations.
+Create a folder under `api/src/connectors/<source-name>` with:
 
-## Structure
+1. `connector.ts`
+2. `index.ts`
+3. `icon.svg`
 
-Connectors live in `api/src/connectors/<source-name>`. Each connector must have:
+Example:
 
-1.  `connector.ts`: The implementation extending `BaseConnector`.
-2.  `index.ts`: Exports the connector and metadata.
-3.  `icon.svg`: A visual icon for the UI.
-
-## Step-by-Step Implementation
-
-### 1. Create the Connector Class
-
-Create `api/src/connectors/my-service/connector.ts`:
-
-```typescript
-import {
-  BaseConnector,
-  FetchOptions,
-  FetchState,
-  ResumableFetchOptions,
-} from "../base/BaseConnector";
-
-export class MyServiceConnector extends BaseConnector {
-  // 1. Define Metadata
-  getMetadata() {
-    return {
-      name: "My Service",
-      version: "1.0.0",
-      description: "Integration with My Service API",
-      supportedEntities: ["users", "orders"],
-    };
-  }
-
-  // 2. Implement Connection Test
-  async testConnection() {
-    try {
-      await this.client.ping(); // Your API call
-      return { success: true, message: "Connected successfully" };
-    } catch (err) {
-      return { success: false, message: err.message };
-    }
-  }
-
-  // 3. Implement Chunked Fetching
-  async fetchEntityChunk(options: ResumableFetchOptions): Promise<FetchState> {
-    const { entity, state } = options;
-    const page = state?.page || 1;
-
-    // Fetch data from your API
-    const response = await this.client.getUsers({ page });
-
-    // Process and save batch
-    await options.onBatch(response.data);
-
-    // Return new state
-    return {
-      totalProcessed: (state?.totalProcessed || 0) + response.data.length,
-      hasMore: response.hasMore,
-      page: page + 1,
-      iterationsInChunk: (state?.iterationsInChunk || 0) + 1,
-    };
-  }
-
-  // 4. Enable Resumable Fetching
-  supportsResumableFetching() {
-    return true;
-  }
-}
+```text
+api/src/connectors/my-service/
+  connector.ts
+  index.ts
+  icon.svg
 ```
 
-### 2. Register the Connector
+## Discovery (Important)
 
-Add your connector to `api/src/connectors/registry.ts`:
+Do **not** manually register connectors in a static map.
 
-```typescript
-import { MyServiceConnector } from "./my-service";
+Connectors are auto-discovered by folder/export convention in:
 
-// ... existing registrations
-export const connectorRegistry = {
-  // ...
-  "my-service": MyServiceConnector,
-};
-```
+- `api/src/connectors/registry.ts` (API runtime)
+- `api/src/sync/connector-registry.ts` (sync runtime)
 
-## Best Practices
+Your module must export a class whose name ends with `Connector`.
 
-- **Idempotency**: Ensure that running the sync twice for the same data doesn't create duplicates. Use `upsert` operations in the destination.
-- **Rate Limiting**: Respect the API limits of the source. Use `this.sleep()` if necessary.
-- **Typing**: Define interfaces for the API responses you expect.
+## Required Runtime Contract
+
+Implement the real `BaseConnector` contract:
+
+- `testConnection()`
+- `getAvailableEntities()`
+- `fetchEntity()`
+- `getMetadata()`
+
+Recommended in real connectors:
+
+- `static getConfigSchema()` (used by UI/registry code)
+- `validateConfig()`
+- `supportsResumableFetching()` + `fetchEntityChunk()`
+
+## Two Implementation Tracks
+
+### Basic connector (pull sync only)
+
+Implement config schema, validation, connection test, entities, and chunked fetch.
+
+### CDC-capable connector (webhook + CDC)
+
+Set `supportsCdc: true` in `getMetadata()` and implement:
+
+- `supportsWebhooks()`
+- `verifyWebhook()`
+- `getWebhookEventMapping()`
+- `getSupportedWebhookEvents()`
+- `extractWebhookData()`
+
+Also implement resumable fetching for robust backfill/resume behavior when required by the source API.
+
+## Canonical CDC Template
+
+Copy the template and rename it:
+
+- `api/src/connectors/template/connector.ts`
+- `api/src/connectors/template/index.ts`
+- `api/src/connectors/template/icon.svg`
+
+Then replace all TODO blocks.
+
+## Query-Based Connector Clarification
+
+- Connector config stores credentials and base connection config.
+- Flow/transfer config defines query payloads for query-based connectors.
+- GraphQL and PostHog follow this flow-level query pattern.
